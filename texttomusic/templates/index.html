@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Text to Music - Генератор музыки из текста</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎵 Text to Music Generator</h1>
+            <p class="subtitle">Преврати свои идеи в музыку с помощью нейросети MusicGen</p>
+        </header>
+        
+        <div class="info-panel" id="modelStatus">
+            <div class="status-indicator" id="statusIndicator"></div>
+            <span id="statusText">Проверка модели...</span>
+        </div>
+        
+        <div class="input-section">
+            <label for="textInput">Введите описание музыки:</label>
+            <textarea 
+                id="textInput" 
+                placeholder="Примеры описаний:
+• Epic cinematic orchestral battle theme with drums and strings
+• Calm piano melody with nature sounds and birds singing
+• Upbeat electronic dance music with bass drop and synth
+• Jazz saxophone solo with piano accompaniment
+• Rock guitar riff with drums and bass"
+                rows="6"
+            ></textarea>
+            
+            <div class="examples">
+                <p>🌟 Примеры для вдохновения:</p>
+                <div class="example-buttons">
+                    <button class="example-btn" data-text="Epic fantasy music with orchestra and choir">🎭 Epic Fantasy</button>
+                    <button class="example-btn" data-text="Relaxing ambient music for meditation">🧘 Relaxing Ambient</button>
+                    <button class="example-btn" data-text="Upbeat pop dance track with modern synth sounds">💃 Upbeat Pop</button>
+                    <button class="example-btn" data-text="Dark cinematic horror atmosphere">👻 Dark Horror</button>
+                </div>
+            </div>
+            
+            <button id="generateBtn" onclick="generateMusic()" class="generate-btn">
+                🎶 Сгенерировать музыку
+            </button>
+        </div>
+        
+        <div id="loading" class="loading-panel hidden">
+            <div class="spinner"></div>
+            <p>Генерация музыки...</p>
+            <p class="small-text">Это может занять 30-60 секунд на CPU</p>
+            <div class="progress-bar">
+                <div class="progress-fill"></div>
+            </div>
+        </div>
+        
+        <div id="result" class="result-panel hidden">
+            <h3>✅ Музыка готова!</h3>
+            <div class="audio-player">
+                <audio id="audioPlayer" controls>
+                    <source id="audioSource" type="audio/wav">
+                    Ваш браузер не поддерживает аудио
+                </audio>
+            </div>
+            <div class="result-actions">
+                <button onclick="downloadAudio()" class="download-btn">💾 Скачать WAV</button>
+                <button onclick="regenerateMusic()" class="regenerate-btn">🔄 Сгенерировать заново</button>
+            </div>
+            <p class="tip">💡 Совет: Для лучших результатов используйте описание на английском языке</p>
+        </div>
+        
+        <div id="error" class="error-panel hidden"></div>
+    </div>
+    
+    <script>
+        let currentAudioBase64 = null;
+        let currentText = '';
+        
+        // Проверка статуса модели при загрузке
+        async function checkModelStatus() {
+            try {
+                const response = await fetch('/status');
+                const data = await response.json();
+                
+                const statusIndicator = document.getElementById('statusIndicator');
+                const statusText = document.getElementById('statusText');
+                
+                if (data.loaded) {
+                    statusIndicator.className = 'status-indicator ready';
+                    statusText.textContent = '✅ Модель готова к работе';
+                } else {
+                    statusIndicator.className = 'status-indicator loading';
+                    statusText.textContent = '⏳ Модель загружается... Первый запуск может занять 10-15 минут';
+                }
+            } catch (error) {
+                console.error('Ошибка проверки статуса:', error);
+            }
+        }
+        
+        // Генерация музыки
+        async function generateMusic() {
+            const text = document.getElementById('textInput').value.trim();
+            
+            if (!text) {
+                showError('Пожалуйста, введите описание музыки');
+                return;
+            }
+            
+            currentText = text;
+            
+            // Показать загрузку
+            document.getElementById('loading').classList.remove('hidden');
+            document.getElementById('result').classList.add('hidden');
+            document.getElementById('error').classList.add('hidden');
+            document.getElementById('generateBtn').disabled = true;
+            
+            // Анимация прогресс-бара
+            animateProgressBar();
+            
+            try {
+                const response = await fetch('/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ text: text })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    currentAudioBase64 = data.audio;
+                    
+                    const audioUrl = `data:audio/wav;base64,${data.audio}`;
+                    document.getElementById('audioSource').src = audioUrl;
+                    document.getElementById('audioPlayer').load();
+                    
+                    document.getElementById('result').classList.remove('hidden');
+                    
+                    // Автовоспроизведение
+                    setTimeout(() => {
+                        document.getElementById('audioPlayer').play().catch(e => console.log('Автовоспроизведение заблокировано'));
+                    }, 500);
+                } else {
+                    showError(data.error || 'Ошибка при генерации музыки');
+                }
+            } catch (error) {
+                showError('Ошибка соединения с сервером: ' + error.message);
+            } finally {
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('generateBtn').disabled = false;
+            }
+        }
+        
+        // Анимация прогресс-бара
+        function animateProgressBar() {
+            const progressFill = document.querySelector('.progress-fill');
+            if (progressFill) {
+                progressFill.style.width = '0%';
+                let progress = 0;
+                const interval = setInterval(() => {
+                    if (progress >= 90) {
+                        clearInterval(interval);
+                    }
+                    if (document.getElementById('loading').classList.contains('hidden')) {
+                        clearInterval(interval);
+                        progressFill.style.width = '100%';
+                    } else {
+                        progress = Math.min(progress + 2, 90);
+                        progressFill.style.width = progress + '%';
+                    }
+                }, 500);
+            }
+        }
+        
+        // Скачивание аудио
+        async function downloadAudio() {
+            if (currentAudioBase64) {
+                const link = document.createElement('a');
+                link.href = `data:audio/wav;base64,${currentAudioBase64}`;
+                link.download = `music_${Date.now()}.wav`;
+                link.click();
+            }
+        }
+        
+        // Регенерация
+        function regenerateMusic() {
+            if (currentText) {
+                document.getElementById('textInput').value = currentText;
+                generateMusic();
+            }
+        }
+        
+        // Показать ошибку
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+            setTimeout(() => {
+                errorDiv.classList.add('hidden');
+            }, 8000);
+        }
+        
+        // Добавление примеров
+        document.querySelectorAll('.example-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const text = btn.getAttribute('data-text');
+                document.getElementById('textInput').value = text;
+            });
+        });
+        
+        // Проверка статуса при загрузке
+        checkModelStatus();
+        // Проверяем статус каждые 5 секунд
+        setInterval(checkModelStatus, 5000);
+    </script>
+</body>
+</html>
